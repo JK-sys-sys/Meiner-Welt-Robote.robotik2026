@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Mars Rover Spiel</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #0f172a;
+        color: white;
+        font-family: system-ui, -apple-system, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        touch-action: none; /* Verhindert Scrollen beim Wischen */
+      }
+      canvas {
+        background-color: #1e293b;
+        border: 2px solid #334155;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        max-width: 95vw;
+        max-height: 45vh;
+        object-fit: contain;
+      }
+      #score {
+        font-size: 20px;
+        margin-bottom: 10px;
+        font-weight: bold;
+        color: #38bdf8;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+      }
+      #controls {
+        margin-top: 5px;
+        color: #94a3b8;
+        font-size: 12px;
+        text-align: center;
+        padding: 0 10px;
+      }
+      .btn {
+        margin-top: 10px;
+        padding: 8px 16px;
+        background-color: #3b82f6;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        display: none;
+      }
+      .btn:hover {
+        background-color: #2563eb;
+      }
+      
+      /* Mobile D-Pad Styles */
+      #dpad {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-top: 10px;
+        gap: 5px;
+      }
+      .dpad-row {
+        display: flex;
+        gap: 5px;
+      }
+      .dpad-btn {
+        width: 50px;
+        height: 50px;
+        background-color: #334155;
+        border: 2px solid #475569;
+        border-radius: 12px;
+        color: white;
+        font-size: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+        transition: background-color 0.1s;
+      }
+      .dpad-btn:active, .dpad-btn.active {
+        background-color: #64748b;
+        transform: scale(0.95);
+      }
+    </style>
+  <script src="/_aistudio-iframe.js"></script></head>
+  <body>
+    <div id="score">Gestein gesammelt: 0</div>
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+    
+    <div id="dpad">
+      <div class="dpad-row">
+        <div class="dpad-btn" id="btn-up">⬆️</div>
+      </div>
+      <div class="dpad-row">
+        <div class="dpad-btn" id="btn-left">⬅️</div>
+        <div class="dpad-btn" id="btn-down">⬇️</div>
+        <div class="dpad-btn" id="btn-right">➡️</div>
+      </div>
+    </div>
+
+    <div id="controls">
+      Tastatur oder Touch-Buttons<br />Sammle 💎, weiche 🕳️ aus!
+    </div>
+    <button id="restartBtn" class="btn" onclick="resetGame()">Neustart</button>
+
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      const scoreElement = document.getElementById("score");
+      const restartBtn = document.getElementById("restartBtn");
+
+      let score = 0;
+      let rover = { x: 200, y: 200, size: 24, speed: 4 };
+      let rocks = [];
+      let craters = [];
+      let gameOver = false;
+      let animationId;
+
+      function spawnRock() {
+        rocks.push({
+          x: Math.random() * 360 + 20,
+          y: Math.random() * 360 + 20,
+          size: 15,
+        });
+      }
+
+      function spawnCrater() {
+        craters.push({
+          x: Math.random() * 360 + 20,
+          y: Math.random() * 360 + 20,
+          size: 25,
+        });
+      }
+
+      function init() {
+        for (let i = 0; i < 3; i++) spawnRock();
+        for (let i = 0; i < 4; i++) spawnCrater();
+      }
+
+      let keys = {};
+      
+      // Keyboard Events
+      window.addEventListener("keydown", (e) => {
+        keys[e.key] = true;
+        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].indexOf(e.code) > -1) {
+          e.preventDefault();
+        }
+      });
+      window.addEventListener("keyup", (e) => (keys[e.key] = false));
+
+      // Touch / Mouse Events for D-Pad
+      function setupDpad() {
+        const mapBtn = (id, key) => {
+          const btn = document.getElementById(id);
+          
+          const press = (e) => { 
+            e.preventDefault(); 
+            keys[key] = true; 
+            btn.classList.add('active');
+          };
+          const release = (e) => { 
+            e.preventDefault(); 
+            keys[key] = false; 
+            btn.classList.remove('active');
+          };
+          
+          btn.addEventListener('touchstart', press, {passive: false});
+          btn.addEventListener('touchend', release, {passive: false});
+          btn.addEventListener('mousedown', press);
+          btn.addEventListener('mouseup', release);
+          btn.addEventListener('mouseleave', release);
+        };
+        
+        mapBtn('btn-up', 'ArrowUp');
+        mapBtn('btn-down', 'ArrowDown');
+        mapBtn('btn-left', 'ArrowLeft');
+        mapBtn('btn-right', 'ArrowRight');
+      }
+      setupDpad();
+
+      function update() {
+        if (gameOver) return;
+
+        if ((keys["ArrowUp"] || keys["w"] || keys["W"]) && rover.y > 10)
+          rover.y -= rover.speed;
+        if ((keys["ArrowDown"] || keys["s"] || keys["S"]) && rover.y < canvas.height - 10)
+          rover.y += rover.speed;
+        if ((keys["ArrowLeft"] || keys["a"] || keys["A"]) && rover.x > 10)
+          rover.x -= rover.speed;
+        if ((keys["ArrowRight"] || keys["d"] || keys["D"]) && rover.x < canvas.width - 10)
+          rover.x += rover.speed;
+
+        // Check rock collision
+        for (let i = rocks.length - 1; i >= 0; i--) {
+          let r = rocks[i];
+          let dx = rover.x - r.x;
+          let dy = rover.y - r.y;
+          if (Math.sqrt(dx * dx + dy * dy) < rover.size / 2 + r.size / 2) {
+            rocks.splice(i, 1);
+            score++;
+            scoreElement.innerText = `Gestein gesammelt: ${score}`;
+            spawnRock();
+            if (score % 4 === 0) spawnCrater(); // Increase difficulty
+          }
+        }
+
+        // Check crater collision
+        for (let c of craters) {
+          let dx = rover.x - c.x;
+          let dy = rover.y - c.y;
+          if (Math.sqrt(dx * dx + dy * dy) < rover.size / 2 + c.size / 2 - 8) {
+            gameOver = true;
+            restartBtn.style.display = "block";
+          }
+        }
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw craters
+        ctx.font = "24px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        for (let c of craters) {
+          ctx.fillText("🕳️", c.x, c.y);
+        }
+
+        // Draw rocks
+        ctx.font = "18px Arial";
+        for (let r of rocks) {
+          ctx.fillText("💎", r.x, r.y);
+        }
+
+        // Draw rover
+        ctx.font = "24px Arial";
+        ctx.fillText("🚙", rover.x, rover.y);
+
+        if (gameOver) {
+          ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = "#f87171";
+          ctx.font = "bold 32px system-ui";
+          ctx.fillText(
+            "Mission Gescheitert!",
+            canvas.width / 2,
+            canvas.height / 2 - 20,
+          );
+          ctx.fillStyle = "#94a3b8";
+          ctx.font = "16px system-ui";
+          ctx.fillText(
+            `Du hast ${score} Gestein gesammelt.`,
+            canvas.width / 2,
+            canvas.height / 2 + 20,
+          );
+        }
+      }
+
+      function loop() {
+        update();
+        draw();
+        animationId = requestAnimationFrame(loop);
+      }
+
+      function resetGame() {
+        score = 0;
+        rover = { x: 200, y: 200, size: 24, speed: 4 };
+        rocks = [];
+        craters = [];
+        gameOver = false;
+        scoreElement.innerText = `Gestein gesammelt: 0`;
+        restartBtn.style.display = "none";
+        init();
+      }
+
+      init();
+      loop();
+    </script>
+  </body>
+</html>
